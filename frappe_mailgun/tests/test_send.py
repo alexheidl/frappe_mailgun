@@ -76,10 +76,53 @@ class TestSend(IntegrationTestCase):
 		q.db_set("email_account", smtp_account.name)
 		q.reload()
 		session = MagicMock()
+		session.has_extn.return_value = False
 		with patch.object(EmailAccount, "get_smtp_server", return_value=SimpleNamespace(session=session)):
 			send(q, q.sender, "to@x.test", q.message)
 		session.sendmail.assert_called_once()
 		self.assertEqual(session.sendmail.call_args.kwargs["to_addrs"], "to@x.test")
+		self.assertEqual(session.sendmail.call_args.kwargs["mail_options"], [])
+
+	def smtp_queue(self, **account_values):
+		smtp_account = make_smtp_account()
+		for field, value in account_values.items():
+			frappe.db.set_value("Email Account", smtp_account.name, field, value)
+		frappe.clear_document_cache("Email Account", smtp_account.name)
+		q = self.make_queue()
+		q.db_set("email_account", smtp_account.name)
+		return q.reload()
+
+	def test_smtp_account_with_dsn_passes_core_options(self):
+		q = self.smtp_queue(dsn_notify_type="SUCCESS,FAILURE")
+		session = MagicMock()
+		session.has_extn.side_effect = lambda name: name == "DSN"
+		with patch.object(EmailAccount, "get_smtp_server", return_value=SimpleNamespace(session=session)):
+			send(q, q.sender, "to@x.test", q.message)
+		kwargs = session.sendmail.call_args.kwargs
+		self.assertEqual(kwargs["mail_options"], ["RET=FULL", f"ENVID={q.name}"])
+		self.assertEqual(kwargs["rcpt_options"], ["NOTIFY=SUCCESS,FAILURE"])
+
+	def test_smtp_size_limit_refuses_a_large_message(self):
+		q = self.smtp_queue()
+		session = MagicMock()
+		session.has_extn.side_effect = lambda name: name == "SIZE"
+		session.esmtp_features = {"size": "10"}
+		with patch.object(EmailAccount, "get_smtp_server", return_value=SimpleNamespace(session=session)):
+			with self.assertRaises(frappe.ValidationError):
+				send(q, q.sender, "to@x.test", q.message)
+		session.sendmail.assert_not_called()
+
+	def test_frappe_mail_account_sends_through_send_raw(self):
+		q = self.smtp_queue(service="Frappe Mail")
+		q.db_set("reference_doctype", "Newsletter")
+		client = MagicMock()
+		with patch.object(EmailAccount, "get_frappe_mail_client", return_value=client), patch.object(
+			EmailAccount, "get_smtp_server", side_effect=AssertionError("no SMTP for Frappe Mail")
+		):
+			send(q, q.sender, "to@x.test", q.message)
+		client.send_raw.assert_called_once_with(
+			sender=q.sender, recipients="to@x.test", message=q.message, is_newsletter=True
+		)
 
 	def test_in_test_guard_without_flag_sends_nothing(self):
 		frappe.flags.testing_email = False
