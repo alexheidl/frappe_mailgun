@@ -1,0 +1,15 @@
+[project]
+name = "frappe_mailgun"
+authors = [{ name = "Alex Heidl", email = "alex@heidlbrothers.de" }]
+description = "A Frappe app that makes Mailgun a first-class email backend for Frappe and ERPNext over Mailgun's HTTP API."
+requires-python = ">=3.14"
+readme = "README.md"
+license = "MIT"
+dynamic = ["version"]
+dependencies = []
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.bench.dev-dependencies]
