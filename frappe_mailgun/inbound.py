@@ -1,15 +1,33 @@
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
 import frappe
+import requests
 from frappe import _
 from frappe.email.receive import InboundMail
 from frappe.model.document import Document
 from frappe.utils import get_datetime, now_datetime
 
-from frappe_mailgun.client import MailgunClient
+from frappe_mailgun.client import MailgunClient, MailgunError
 from frappe_mailgun.signature import consume_token, verify_signature
 
 SWEEP_LOOKBACK_DAYS = 3
+
+
+def is_storage_url(url, domain_name: str) -> bool:
+	"""True only for an https Mailgun URL under this domain's stored messages."""
+	if not url or not isinstance(url, str):
+		return False
+	try:
+		parsed = urlparse(url)
+		host = parsed.hostname or ""
+	except ValueError:
+		return False
+	return (
+		parsed.scheme == "https"
+		and (host == "mailgun.net" or host.endswith(".mailgun.net"))
+		and parsed.path.startswith(f"/v3/domains/{domain_name}/messages/")
+	)
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -21,11 +39,17 @@ def notify():
 	if not domain_name or not frappe.db.exists("Mailgun Domain", domain_name):
 		frappe.throw(_("Unknown domain"), frappe.DoesNotExistError)
 
+	if not (form.get("timestamp") and form.get("token") and form.get("signature")):
+		frappe.throw(_("Invalid signature"), frappe.AuthenticationError)
+
 	signing_key = frappe.get_doc("Mailgun Domain", domain_name).get_password("webhook_signing_key")
 	if not verify_signature(
 		signing_key, form.get("timestamp"), form.get("token"), form.get("signature")
 	):
 		frappe.throw(_("Invalid signature"), frappe.AuthenticationError)
+
+	if not is_storage_url(form.get("message-url"), domain_name):
+		frappe.throw(_("Invalid message URL"), frappe.ValidationError)
 
 	if not consume_token(form.get("token")):
 		return {"status": "duplicate"}
@@ -52,6 +76,10 @@ def fetch(domain: str, message_url: str, recipient: str) -> None:
 	)
 	if not account_name:
 		frappe.log_error(title="Mailgun inbound: no account", message=recipient)
+		return
+
+	if not is_storage_url(message_url, domain.lower()):
+		frappe.log_error(title="Mailgun inbound: invalid message URL", message=str(message_url))
 		return
 
 	storage_key = message_url.rstrip("/").rsplit("/", 1)[-1]
@@ -100,12 +128,32 @@ def _sweep_raw_messages(account) -> list[tuple[str, bytes]]:
 		key, url = storage.get("key"), storage.get("url")
 		if not key or not url or _is_seen(key) or any(key == k for k, _raw in raw_messages):
 			continue
-		raw_messages.append((key, client.get_stored_message(url)))
+		if not is_storage_url(url, account.mailgun_domain.lower()):
+			frappe.log_error(title="Mailgun inbound: invalid message URL", message=str(url))
+			continue
+		try:
+			raw_messages.append((key, client.get_stored_message(url)))
+		except (MailgunError, requests.RequestException):
+			frappe.log_error(title="Mailgun inbound: fetch failed", message=f"{account.name} {key}")
+			_record_failed(account, key)
 	if latest is not None:
 		account.db_set(
 			"mailgun_last_received_at", datetime.fromtimestamp(latest), update_modified=False
 		)
 	return raw_messages
+
+
+def _record_failed(account, storage_key: str) -> None:
+	"""Record a key whose fetch failed, with no Communication, so the sweep does not retry it forever."""
+	frappe.get_doc(
+		{
+			"doctype": "Mailgun Inbound Message",
+			"storage_key": storage_key,
+			"email_account": account.name,
+			"recipient": account.email_id,
+			"received_at": now_datetime(),
+		}
+	).insert(ignore_permissions=True, ignore_if_duplicate=True)
 
 
 def get_inbound_mails(account) -> list[MailgunInboundMail]:

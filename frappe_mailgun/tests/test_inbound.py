@@ -54,14 +54,14 @@ class TestInbound(IntegrationTestCase):
 
 	def test_the_same_storage_key_is_processed_once(self):
 		with mock_request([(200, {"body-mime": RAW_MAIL.decode()})]) as m:
-			fetch("mg.example.test", "https://x/messages/KEY2", "support@mg.example.test")
-			fetch("mg.example.test", "https://x/messages/KEY2", "support@mg.example.test")
+			fetch("mg.example.test", "https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/KEY2", "support@mg.example.test")
+			fetch("mg.example.test", "https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/KEY2", "support@mg.example.test")
 		self.assertEqual(len(m.calls), 1)
 		self.assertEqual(frappe.db.count("Communication", {"message_id": "m1@customer.test"}), 1)
 
 	def test_fetch_for_an_unknown_recipient_logs_and_returns(self):
 		with mock_request([]) as m:
-			fetch("mg.example.test", "https://x/messages/KEY3", "nobody@mg.example.test")
+			fetch("mg.example.test", "https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/KEY3", "nobody@mg.example.test")
 		self.assertEqual(m.calls, [])
 		self.assertTrue(frappe.db.exists("Error Log", {"method": "Mailgun inbound: no account"}))
 
@@ -72,7 +72,7 @@ class TestInbound(IntegrationTestCase):
 					"id": "e1",
 					"event": "stored",
 					"timestamp": 1_800_000_000,
-					"storage": {"key": "KEY4", "url": "https://x/messages/KEY4"},
+					"storage": {"key": "KEY4", "url": "https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/KEY4"},
 				}
 			],
 			"paging": {"next": "https://x/next"},
@@ -82,6 +82,56 @@ class TestInbound(IntegrationTestCase):
 		):
 			self.account.reload().receive()
 		self.assertTrue(frappe.db.exists("Mailgun Inbound Message", "KEY4"))
+		self.assertIsNotNone(
+			frappe.db.get_value("Email Account", self.account.name, "mailgun_last_received_at")
+		)
+
+	def _refused(self, form, exc):
+		with patch("frappe.enqueue") as enqueue, patch(
+			"frappe_mailgun.inbound.consume_token"
+		) as consume:
+			with self.assertRaises(exc):
+				call_guest(notify, form)
+		enqueue.assert_not_called()
+		consume.assert_not_called()
+
+	def test_notify_refuses_a_foreign_host(self):
+		form = notify_form("sign-test", recipient="support@mg.example.test")
+		form["message-url"] = "https://evil.test/v3/domains/mg.example.test/messages/K"
+		self._refused(form, frappe.ValidationError)
+
+	def test_notify_refuses_an_http_url(self):
+		form = notify_form("sign-test", recipient="support@mg.example.test")
+		form["message-url"] = "http://sw.api.mailgun.net/v3/domains/mg.example.test/messages/K"
+		self._refused(form, frappe.ValidationError)
+
+	def test_notify_refuses_another_domains_path(self):
+		form = notify_form("sign-test", recipient="support@mg.example.test")
+		form["message-url"] = "https://sw.api.mailgun.net/v3/domains/other.test/messages/K"
+		self._refused(form, frappe.ValidationError)
+
+	def test_notify_refuses_a_missing_message_url(self):
+		form = notify_form("sign-test", recipient="support@mg.example.test")
+		del form["message-url"]
+		self._refused(form, frappe.ValidationError)
+
+	def test_sweep_survives_a_dead_message(self):
+		def event(key, ts):
+			return {
+				"event": "stored",
+				"timestamp": ts,
+				"storage": {
+					"key": key,
+					"url": f"https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/{key}",
+				},
+			}
+
+		events = {"items": [event("DEAD1", 1_800_000_000), event("LIVE1", 1_800_000_100)], "paging": {}}
+		with mock_request([(200, events), (404, {"message": "gone"}), (200, {"body-mime": RAW_MAIL.decode()})]):
+			self.account.reload().receive()
+		self.assertTrue(frappe.db.exists("Mailgun Inbound Message", "DEAD1"))
+		self.assertFalse(frappe.db.get_value("Mailgun Inbound Message", "DEAD1", "communication"))
+		self.assertTrue(frappe.db.get_value("Mailgun Inbound Message", "LIVE1", "communication"))
 		self.assertIsNotNone(
 			frappe.db.get_value("Email Account", self.account.name, "mailgun_last_received_at")
 		)
