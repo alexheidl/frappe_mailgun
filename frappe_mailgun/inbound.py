@@ -15,6 +15,11 @@ from frappe_mailgun.signature import consume_token, verify_signature
 SWEEP_LOOKBACK_DAYS = 3
 
 
+def _text(value) -> str:
+	"""`value` when it is a string, else empty: a guest's body may put anything anywhere."""
+	return value if isinstance(value, str) else ""
+
+
 def is_storage_url(url, domain_name: str) -> bool:
 	"""True only for an https Mailgun URL under this domain's stored messages."""
 	if not url or not isinstance(url, str) or not domain_name:
@@ -32,31 +37,31 @@ def is_storage_url(url, domain_name: str) -> bool:
 def notify():
 	"""Receive Mailgun's stored-message notification and queue the fetch of the raw message."""
 	form = frappe.form_dict
-	recipient = form.get("recipient") or ""
+	recipient = _text(form.get("recipient"))
+	timestamp, token, signature = (_text(form.get(k)) for k in ("timestamp", "token", "signature"))
+	message_url = _text(form.get("message-url"))
 	domain_name = recipient.rpartition("@")[2].lower()
 	if not domain_name or not frappe.db.exists("Mailgun Domain", domain_name):
 		frappe.throw(_("Unknown domain"), frappe.DoesNotExistError)
 
-	if not (form.get("timestamp") and form.get("token") and form.get("signature")):
+	if not (timestamp and token and signature):
 		frappe.throw(_("Invalid signature"), frappe.AuthenticationError)
 
 	signing_key = frappe.get_doc("Mailgun Domain", domain_name).get_password("webhook_signing_key")
-	if not verify_signature(
-		signing_key, form.get("timestamp"), form.get("token"), form.get("signature")
-	):
+	if not verify_signature(signing_key, timestamp, token, signature):
 		frappe.throw(_("Invalid signature"), frappe.AuthenticationError)
 
-	if not is_storage_url(form.get("message-url"), domain_name):
+	if not is_storage_url(message_url, domain_name):
 		frappe.throw(_("Invalid message URL"), frappe.ValidationError)
 
-	if not consume_token(form.get("token")):
+	if not consume_token(token):
 		return {"status": "duplicate"}
 
 	frappe.enqueue(
 		"frappe_mailgun.inbound.fetch",
 		queue="short",
 		domain=domain_name,
-		message_url=form.get("message-url"),
+		message_url=message_url,
 		recipient=recipient,
 	)
 	return {"status": "queued"}

@@ -64,6 +64,19 @@ class TestInbound(IntegrationTestCase):
 		with self.assertRaises(frappe.DoesNotExistError):
 			call_guest(notify, form)
 
+	def test_notify_treats_badly_typed_fields_as_absent(self):
+		form = notify_form("sign-test", recipient="support@mg.example.test")
+		form["recipient"] = {"x": 1}
+		with self.assertRaises(frappe.DoesNotExistError):
+			call_guest(notify, form)
+		form = notify_form("sign-test", recipient="support@mg.example.test")
+		form["timestamp"] = int(form["timestamp"])
+		with self.assertRaises(frappe.AuthenticationError):
+			call_guest(notify, form)
+		form = notify_form("sign-test", recipient="support@mg.example.test")
+		form["message-url"] = ["https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/K"]
+		self._refused(form, frappe.ValidationError)
+
 	def test_notify_queues_once_per_token(self):
 		form = notify_form("sign-test", recipient="support@mg.example.test")
 		with patch("frappe.enqueue") as enqueue:

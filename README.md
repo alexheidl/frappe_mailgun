@@ -72,7 +72,8 @@ One site per Mailgun domain is the supported setup:
 
 - Routes are per address and the first matching `stop()` route wins.
 - A second site on the same domain must use different addresses.
-- Events carry the site they came from, and a site ignores other sites' events.
+- Events carry the site they came from, and a site ignores other sites' events. The events
+  endpoint answers 200 for a signed event it ignores, so Mailgun does not retry it.
 
 ## A worked setup
 
@@ -137,9 +138,12 @@ anyway: the app records Mailgun's verdicts and does not act on them.
   - 404 for a recipient domain that is not a Mailgun Domain.
   - 417 for a `message-url` that is not a stored message of the domain.
   - A replayed token is ignored.
-- 401 on the events endpoint (`/api/method/frappe_mailgun.events.webhook`): it answers 401 for every
-  refusal on purpose, including an unknown domain or an empty body. Check the Webhook Signing Key
-  first.
+- 401 on the events endpoint (`/api/method/frappe_mailgun.events.webhook`): no Mailgun Domain's
+  Webhook Signing Key verifies the signature, or the signature block is missing or malformed. Check
+  the Webhook Signing Key first. Its other answers:
+  - 200 for every signed event, including one for a queue that is gone (stored without links) and
+    another site's event (ignored, nothing stored).
+  - A replayed token is ignored.
 - Error Log "Mailgun inbound: no account": the route still exists for an address that has no
   enabled incoming Mailgun account. Delete the route in Mailgun, or re-enable incoming on the account.
 - Mail does not arrive and no route changes show: untick Enable Incoming, save, tick it, save. The

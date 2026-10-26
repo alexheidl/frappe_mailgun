@@ -24,44 +24,47 @@ STATUS_RANK = {
 }
 
 
-def _domain_of(address) -> str:
-	"""The part after `@`, without angle brackets, lowercased."""
-	return (address or "").strip().strip("<>").rpartition("@")[2].lower()
+def _text(value) -> str:
+	"""`value` when it is a string, else empty: a guest's JSON may put anything anywhere."""
+	return value if isinstance(value, str) else ""
+
+
+def _dict(value) -> dict:
+	return value if isinstance(value, dict) else {}
+
+
+def _user_variables(event_data: dict) -> dict:
+	return _dict(event_data.get("user-variables"))
 
 
 def _message_id(event_data: dict) -> str:
-	headers = (event_data.get("message") or {}).get("headers") or {}
-	return headers.get("message-id") or ""
+	headers = _dict(_dict(event_data.get("message")).get("headers"))
+	return _text(headers.get("message-id"))
 
 
 def _refuse():
 	frappe.throw(_("Invalid signature"), frappe.AuthenticationError)
 
 
-def _resolve_domain(event_data: dict) -> str | None:
-	"""The Mailgun Domain to verify against: the message-id's domain, else the site variable's.
+def _verified(timestamp: str, token: str, signature: str) -> bool:
+	"""True when any Mailgun Domain's signing key verifies the triple.
 
-	Core builds message ids from the site host, so when neither names a Mailgun Domain the
-	queue's Email Account decides. The signature is checked afterwards, so nothing is trusted here.
+	The key is account-wide and the domains are few, so trying each one means nothing in the
+	event body reaches the database before the signature holds.
 	"""
-	user_variables = event_data.get("user-variables") or {}
-	for candidate in (_domain_of(_message_id(event_data)), _domain_of(user_variables.get("site"))):
-		if candidate and frappe.db.exists("Mailgun Domain", candidate):
-			return candidate
-	queue = _find_queue(event_data)
-	if queue:
-		account = frappe.db.get_value("Email Queue", queue, "email_account")
-		domain = account and frappe.db.get_value("Email Account", account, "mailgun_domain")
-		if domain and frappe.db.exists("Mailgun Domain", domain):
-			return domain
-	return None
+	for name in frappe.get_all("Mailgun Domain", pluck="name"):
+		key = frappe.get_doc("Mailgun Domain", name).get_password("webhook_signing_key", raise_exception=False)
+		if verify_signature(key, timestamp, token, signature):
+			return True
+	return False
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 def webhook():
 	"""Receive one Mailgun event: verify its signature, drop replays, apply it inline.
 
-	The JSON body is read from the request; without a request (tests) the form dict stands in for it.
+	A verified event this site cannot match, or another site's, still gets a 200 so Mailgun stops
+	retrying it. The JSON body is read from the request; without a request (tests) the form dict stands in for it.
 	"""
 	body = frappe.request.get_json(silent=True) if frappe.request else None
 	if not isinstance(body, dict):
@@ -72,20 +75,11 @@ def webhook():
 	if not isinstance(signature, dict) or not isinstance(event_data, dict):
 		_refuse()
 
-	domain_name = _resolve_domain(event_data)
-	if not domain_name:
+	timestamp, token, sig = (_text(signature.get(k)) for k in ("timestamp", "token", "signature"))
+	if not _verified(timestamp, token, sig):
 		_refuse()
 
-	signing_key = frappe.get_doc("Mailgun Domain", domain_name).get_password("webhook_signing_key")
-	if not verify_signature(
-		signing_key,
-		signature.get("timestamp"),
-		signature.get("token"),
-		signature.get("signature"),
-	):
-		_refuse()
-
-	if not consume_token(signature.get("token")):
+	if not consume_token(token):
 		return {"status": "duplicate"}
 
 	apply_event(event_data)
@@ -103,8 +97,7 @@ def _to_system_datetime(timestamp):
 
 
 def _find_queue(event_data: dict) -> str | None:
-	user_variables = event_data.get("user-variables") or {}
-	name = user_variables.get("email_queue")
+	name = _text(_user_variables(event_data).get("email_queue"))
 	if name and frappe.db.exists("Email Queue", name):
 		return name
 	message_id = _message_id(event_data)
@@ -118,17 +111,16 @@ def _find_queue(event_data: dict) -> str | None:
 
 def apply_event(event_data: dict) -> str | None:
 	"""Store `event_data` and apply its status moves; None when it is a repeat or another site's."""
-	user_variables = event_data.get("user-variables") or {}
-	site = user_variables.get("site")
+	site = _text(_user_variables(event_data).get("site"))
 	if site and site != frappe.local.site:
 		return None
-	event_id = event_data.get("id")
+	event_id = _text(event_data.get("id"))
 	if not event_id or frappe.db.exists("Mailgun Event", event_id):
 		return None
 
 	queue = frappe.get_doc("Email Queue", name) if (name := _find_queue(event_data)) else None
-	event = event_data.get("event")
-	recipient = (event_data.get("recipient") or "").lower()
+	event = _text(event_data.get("event"))
+	recipient = _text(event_data.get("recipient")).lower()
 	doc = frappe.get_doc(
 		{
 			"doctype": "Mailgun Event",
@@ -139,8 +131,8 @@ def apply_event(event_data: dict) -> str | None:
 			"email_queue": queue.name if queue else None,
 			"communication": queue.communication if queue else None,
 			"timestamp": _to_system_datetime(event_data.get("timestamp")),
-			"severity": event_data.get("severity"),
-			"reason": event_data.get("reason"),
+			"severity": _text(event_data.get("severity")) or None,
+			"reason": _text(event_data.get("reason")) or None,
 			"data": frappe.as_json(event_data),
 		}
 	)
@@ -178,8 +170,8 @@ def _apply_status(queue, event: str, recipient: str, event_data: dict) -> None:
 			return
 		if event_data.get("severity") != "permanent" or not row:
 			return
-		reason = event_data.get("reason")
-		text = ((event_data.get("delivery-status") or {}).get("message")) or reason or _("Delivery failed")
+		reason = _text(event_data.get("reason"))
+		text = _text(_dict(event_data.get("delivery-status")).get("message")) or reason or _("Delivery failed")
 		row.db_set("error", text, update_modified=False)
 		if _roll_up(queue, text) == "Error":
 			set_delivery_status(communication, "Bounced" if reason == "bounce" else "Rejected")

@@ -182,6 +182,55 @@ class TestEvents(IntegrationTestCase):
 		with self.assertRaises(frappe.AuthenticationError):
 			call_guest_json(webhook, {"signature": signed("k")})
 
+	def test_webhook_queries_nothing_from_the_event_before_a_key_verifies(self):
+		event = self.ev("delivered")
+		event["user-variables"]["email_queue"] = {"name": ["like", "%"]}
+		real_exists, real_get_value = frappe.db.exists, frappe.db.get_value
+		touched = []
+
+		def spy(real):
+			def wrapper(doctype, *args, **kwargs):
+				touched.append(doctype)
+				return real(doctype, *args, **kwargs)
+
+			return wrapper
+
+		with patch.object(frappe.db, "exists", spy(real_exists)), patch.object(
+			frappe.db, "get_value", spy(real_get_value)
+		):
+			with self.assertRaises(frappe.AuthenticationError):
+				call_guest_json(webhook, {"signature": signed("wrong"), "event-data": event})
+		self.assertNotIn("Email Queue", touched)
+		self.assertNotIn("Mailgun Event", touched)
+
+	def test_webhook_answers_ok_for_a_queue_that_is_gone(self):
+		event = event_data("delivered", recipient="x@x.test", email_queue="EQ-gone", site=frappe.local.site)
+		body = {"signature": signed("sign-test"), "event-data": event}
+		self.assertEqual(call_guest_json(webhook, body), {"status": "ok"})
+		self.assertTrue(frappe.db.exists("Mailgun Event", event["id"]))
+		self.assertFalse(frappe.db.get_value("Mailgun Event", event["id"], "email_queue"))
+
+	def test_webhook_answers_ok_for_another_sites_event_and_stores_nothing(self):
+		event = self.ev("delivered", site="other.localhost")
+		body = {"signature": signed("sign-test"), "event-data": event}
+		self.assertEqual(call_guest_json(webhook, body), {"status": "ok"})
+		self.assertFalse(frappe.db.exists("Mailgun Event", event["id"]))
+
+	def test_webhook_refuses_a_non_string_timestamp(self):
+		signature = signed("sign-test")
+		signature["timestamp"] = int(signature["timestamp"])
+		with self.assertRaises(frappe.AuthenticationError):
+			call_guest_json(webhook, {"signature": signature, "event-data": self.ev("delivered")})
+
+	def test_webhook_treats_badly_typed_event_fields_as_absent(self):
+		event = self.ev("delivered")
+		event["user-variables"] = ["not", "a", "dict"]
+		event["recipient"] = {"x": 1}
+		event["message"] = {"headers": {"message-id": 5}}
+		body = {"signature": signed("sign-test"), "event-data": event}
+		self.assertEqual(call_guest_json(webhook, body), {"status": "ok"})
+		self.assertFalse(frappe.db.get_value("Mailgun Event", event["id"], "email_queue"))
+
 	def send_to(self, **kwargs):
 		with mock_request([(200, {})] * 2):
 			frappe.sendmail(sender="support@mg.example.test", subject="hi", message="b", now=True, **kwargs)
