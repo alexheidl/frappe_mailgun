@@ -17,6 +17,9 @@ class TestSignature(IntegrationTestCase):
 		s = signed("sign-test", now=1_000_000)
 		self.assertFalse(verify_signature("sign-test", **s, now=1_000_000 + 901))
 
+	def test_non_ascii_signature_is_refused(self):
+		self.assertFalse(verify_signature("k", "1000000", "t", "é", now=1000000))
+
 	def test_missing_field(self):
 		self.assertFalse(verify_signature("sign-test", "", "t", "s"))
 

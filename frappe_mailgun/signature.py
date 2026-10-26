@@ -22,7 +22,7 @@ def verify_signature(
 	expected = hmac.new(
 		signing_key.encode(), (timestamp + token).encode(), hashlib.sha256
 	).hexdigest()
-	return hmac.compare_digest(expected, signature)
+	return hmac.compare_digest(expected.encode(), signature.encode())
 
 
 def consume_token(token: str) -> bool:
