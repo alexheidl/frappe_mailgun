@@ -74,31 +74,41 @@ class TestEvents(IntegrationTestCase):
 			frappe.db.get_value("Communication", self.comm.name, "delivery_status"), "Bounced"
 		)
 
-	def test_one_bounced_cc_is_partially_sent(self):
-		with mock_request([(200, {}), (200, {})]):
-			frappe.sendmail(
-				recipients=["a@x.test"],
-				cc=["b@x.test"],
-				sender="support@mg.example.test",
-				subject="hi",
-				message="b",
-				now=True,
-			)
-			frappe.db.commit()
-		q = frappe.get_last_doc("Email Queue")
-		apply_event(event_data("delivered", recipient="a@x.test", email_queue=q.name, site=frappe.local.site))
-		apply_event(
-			event_data(
-				"failed",
-				recipient="b@x.test",
-				email_queue=q.name,
-				site=frappe.local.site,
-				severity="permanent",
-				reason="bounce",
-			)
-		)
+	def row_of(self, queue, recipient):
+		return next(r for r in queue.recipients if r.recipient == recipient)
+
+	def test_one_bounced_cc_leaves_the_queue_sent(self):
+		q = self.send_to(recipients=["a@x.test"], cc=["b@x.test"])
+		site = frappe.local.site
+		apply_event(event_data("delivered", recipient="a@x.test", email_queue=q.name, site=site))
+		apply_event(event_data("failed", recipient="b@x.test", email_queue=q.name, site=site, severity="permanent", reason="bounce"))
 		q.reload()
-		self.assertEqual(q.status, "Partially Sent")
+		# Core retries Partially Sent queues, so a mixed outcome stays Sent with the error on the row.
+		self.assertEqual(q.status, "Sent")
+		self.assertTrue(self.row_of(q, "b@x.test").error)
+		self.assertFalse(self.row_of(q, "a@x.test").error)
+
+	def test_every_row_failing_sets_error(self):
+		q = self.send_to(recipients=["a@x.test"], cc=["b@x.test"])
+		site = frappe.local.site
+		for r in ("a@x.test", "b@x.test"):
+			apply_event(event_data("failed", recipient=r, email_queue=q.name, site=site, severity="permanent", reason="bounce"))
+		q.reload()
+		self.assertEqual(q.status, "Error")
+
+	def test_a_queue_still_sending_is_not_rolled_up(self):
+		for status in ("Not Sent", "Sending", "Partially Sent"):
+			with self.subTest(status=status):
+				self.queue.db_set("status", status)
+				apply_event(self.ev("failed", severity="permanent", reason="bounce"))
+				self.queue.reload()
+				self.assertEqual(self.queue.status, status)
+
+	def test_a_queue_in_error_stays_in_error(self):
+		self.queue.db_set("status", "Error")
+		apply_event(self.ev("delivered"))
+		self.queue.reload()
+		self.assertEqual(self.queue.status, "Error")
 
 	def test_statuses_only_move_forward(self):
 		apply_event(self.ev("opened"))
@@ -178,13 +188,13 @@ class TestEvents(IntegrationTestCase):
 			frappe.db.commit()
 		return frappe.get_last_doc("Email Queue")
 
-	def test_failure_then_delivery_for_the_other_recipient_stays_partial(self):
+	def test_failure_then_delivery_for_the_other_recipient_stays_sent(self):
 		q = self.send_to(recipients=["a@x.test"], cc=["b@x.test"])
 		site = frappe.local.site
 		apply_event(event_data("failed", recipient="b@x.test", email_queue=q.name, site=site, severity="permanent", reason="bounce"))
 		apply_event(event_data("delivered", recipient="a@x.test", email_queue=q.name, site=site))
 		q.reload()
-		self.assertEqual(q.status, "Partially Sent")
+		self.assertEqual(q.status, "Sent")
 
 	def test_delivery_for_an_address_not_on_the_queue_leaves_it_alone(self):
 		apply_event(event_data("delivered", recipient="zz@x.test", email_queue=self.queue.name, site=frappe.local.site))

@@ -105,7 +105,9 @@ anyway: the app records Mailgun's verdicts and does not act on them.
   - Opened
   - Clicked
   - Marked As Spam or Recipient Unsubscribed
-- Email Queue: status per recipient, rolled up. One bounced CC does not fail the mail.
+- Email Queue: status per recipient. A Sent queue moves to Error only when every recipient failed.
+  One bounced CC leaves the queue Sent, with the error on that recipient's row. A queue still
+  sending, or already in Error, is left alone.
 - Unsubscribe events create an Email Unsubscribe for the mail's reference document only, never a
   global one. A mail with no reference document gets no Email Unsubscribe, and the Communication
   status still changes.

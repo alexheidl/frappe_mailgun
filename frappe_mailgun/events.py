@@ -210,23 +210,20 @@ def _apply_status(queue, event: str, recipient: str, event_data: dict) -> None:
 
 
 def _roll_up(queue, error_text: str | None = None) -> str:
-	"""Set the queue status from its rows and return it.
+	"""Move a Sent queue to Error when every row has an error; return the queue's status.
 
-	Sent when every row is Sent without an error, Error when every row has an error, else Partially Sent.
+	Only a Sent queue is touched. Core's get_queue() retries Not Sent and Partially Sent queues, so
+	events never write Partially Sent, never touch a queue core is still sending, and never move a
+	queue out of Error. A mixed outcome leaves the queue Sent with the error on the row.
 	update_db, not update_status: that would make core rewrite the Communication unguarded.
 	"""
 	queue.reload()
-	if all(r.status == "Sent" and not r.error for r in queue.recipients):
-		status = "Sent"
-	elif all(r.error for r in queue.recipients):
-		status = "Error"
-	else:
-		status = "Partially Sent"
-	if status == "Error":
-		queue.update_db(status=status, error=error_text, commit=False)
-	else:
-		queue.update_db(status=status, commit=False)
-	return status
+	if queue.status != "Sent":
+		return queue.status
+	if not all(r.error for r in queue.recipients):
+		return "Sent"
+	queue.update_db(status="Error", error=error_text, commit=False)
+	return "Error"
 
 
 def _rank(status) -> int:

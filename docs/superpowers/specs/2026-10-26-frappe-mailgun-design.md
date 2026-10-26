@@ -195,9 +195,9 @@ its own mail. Statuses move per recipient first, then roll up:
 
 - the Email Queue Recipient row for that address: Sent on `delivered`, Error on a permanent
   `failed`;
-- the Email Queue: Sent when every row is Sent, Error only when every row is Error (so one bounced
-  CC does not trigger the failed-mail notification or a retry to the people who got it), otherwise
-  Partially Sent;
+- the Email Queue: only a Sent queue moves, to Error when every row has an error; a mixed outcome
+  stays Sent with the error on the row (core retries Partially Sent, so events never write it), a
+  queue core is still sending is left alone, and Error is never left;
 - the Communication: delivery status from the queue as core computes it, plus the states core cannot
   know (Opened, Clicked, Marked As Spam, Recipient Unsubscribed) set directly.
 
@@ -206,9 +206,9 @@ The map:
 | Mailgun event   | Email Queue status | Communication delivery status |
 | --------------- | ------------------ | ----------------------------- |
 | `accepted`      | Sending            | Sending                       |
-| `delivered`     | Sent               | Sent                          |
+| `delivered`     | (unchanged)        | Sent                          |
 | `failed` (temporary) | (unchanged)   | Delayed                       |
-| `failed` (permanent) | Error, with the reason | Bounced or Rejected per `reason` |
+| `failed` (permanent) | Error, with the reason, when every row has an error; else Sent | Bounced or Rejected per `reason` |
 | `opened`        |                    | Opened                        |
 | `clicked`       |                    | Clicked                       |
 | `complained`    |                    | Marked As Spam                |
