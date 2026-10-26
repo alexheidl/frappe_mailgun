@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 from urllib.parse import urlparse
 
 import frappe
@@ -8,6 +8,7 @@ from frappe.email.receive import InboundMail
 from frappe.model.document import Document
 from frappe.utils import get_datetime, now_datetime
 
+from frappe_mailgun.clock import from_unix, to_unix
 from frappe_mailgun.client import MailgunClient, MailgunError
 from frappe_mailgun.signature import consume_token, verify_signature
 
@@ -113,7 +114,7 @@ def _sweep_raw_messages(account) -> list[tuple[str, bytes]]:
 	params = {
 		"event": "stored",
 		"recipient": account.email_id,
-		"begin": int(begin.timestamp()),
+		"begin": int(to_unix(begin)),
 		"ascending": "yes",
 	}
 	# List every event first: fetching between pages would interleave requests.
@@ -137,9 +138,7 @@ def _sweep_raw_messages(account) -> list[tuple[str, bytes]]:
 			frappe.log_error(title="Mailgun inbound: fetch failed", message=f"{account.name} {key}")
 			_record_failed(account, key)
 	if latest is not None:
-		account.db_set(
-			"mailgun_last_received_at", datetime.fromtimestamp(latest), update_modified=False
-		)
+		account.db_set("mailgun_last_received_at", from_unix(latest), update_modified=False)
 	return raw_messages
 
 
