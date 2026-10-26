@@ -94,3 +94,21 @@ def make_account(
 			"append_to": append_to,
 		}
 	).insert(ignore_permissions=True)
+
+
+def make_smtp_account():
+	"""Insert an outgoing-only GMail Email Account, replacing an existing one. Core skips connections under `frappe.in_test`."""
+	name = "SMTP smtp@example.test"
+	if frappe.db.exists("Email Account", name):
+		frappe.delete_doc("Email Account", name, force=True)
+	return frappe.get_doc(
+		{
+			"doctype": "Email Account",
+			"email_account_name": name,
+			"email_id": "smtp@example.test",
+			"service": "GMail",
+			"awaiting_password": 1,
+			"enable_outgoing": 1,
+			"enable_incoming": 0,
+		}
+	).insert(ignore_permissions=True)
