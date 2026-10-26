@@ -221,7 +221,8 @@ def record_mails(account) -> None:
 				"storage_key": mail.storage_key,
 				"email_account": account.name,
 				"recipient": account.email_id,
-				"message_id": mail.message_id,
+				# The field holds 140 characters; a longer id would fail this insert and mask core's error.
+				"message_id": (mail.message_id or "")[:140] or None,
 				"communication": mail.communication.name if mail.communication else None,
 				"received_at": now_datetime(),
 				"spf": headers.get("X-Mailgun-Spf") or "",

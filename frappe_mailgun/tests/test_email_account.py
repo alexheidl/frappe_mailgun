@@ -29,7 +29,7 @@ class TestMailgunEmailAccount(IntegrationTestCase):
 		self.assertEqual(acc.mailgun_route_id, "r1")
 		method, path, kw = m.calls[0]
 		self.assertEqual((method, path), ("POST", "/v3/routes"))
-		self.assertEqual(kw["data"]["expression"], 'match_recipient("support@mg.example.test")')
+		self.assertEqual(kw["data"]["expression"], 'match_recipient("^support@mg\\.example\\.test$")')
 		notify = frappe.utils.get_url("/api/method/frappe_mailgun.inbound.notify")
 		self.assertIn(f'store(notify="{notify}")', kw["data"]["action"])
 		self.assertIn("stop()", kw["data"]["action"])

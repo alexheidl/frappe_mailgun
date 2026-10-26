@@ -1,3 +1,5 @@
+import re
+
 import frappe
 from frappe import _
 from frappe.email.doctype.email_account.email_account import EmailAccount, get_append_to
@@ -90,7 +92,8 @@ class MailgunEmailAccount(EmailAccount):
 				self.db_set("mailgun_route_id", None)
 			return
 
-		expression = f'match_recipient("{self.email_id}")'
+		# match_recipient takes a regex: escape the address and anchor it so it matches only itself.
+		expression = f'match_recipient("^{re.escape(self.email_id)}$")'
 		notify_url = frappe.utils.get_url("/api/method/frappe_mailgun.inbound.notify")
 		actions = [f'store(notify="{notify_url}")', "stop()"]
 		description = f"Frappe Mailgun: {frappe.utils.get_url()} {self.name}"

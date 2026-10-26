@@ -248,3 +248,11 @@ class TestInbound(IntegrationTestCase):
 		self.assertTrue(frappe.db.get_value("Mailgun Inbound Message", "LIVE3", "communication"))
 		self.assertEqual(self.cursor(), from_unix(1_800_000_100))
 		self.assertTrue(frappe.db.exists("Error Log", {"method": "Mailgun inbound: event failed"}))
+
+	def test_a_long_message_id_is_truncated_on_the_record(self):
+		long_id = "x" * 200 + "@customer.test"
+		self.addCleanup(frappe.db.delete, "Communication", {"message_id": ("like", "xxxx%")})
+		raw = RAW_MAIL.replace(b"<m1@customer.test>", f"<{long_id}>".encode())
+		with mock_request([(200, {"body-mime": raw.decode()})]):
+			fetch("mg.example.test", "https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/LONG1", "support@mg.example.test")
+		self.assertEqual(len(frappe.db.get_value("Mailgun Inbound Message", "LONG1", "message_id")), 140)
