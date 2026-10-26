@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
+from urllib.parse import unquote
 
 import requests
 
@@ -9,6 +11,22 @@ if TYPE_CHECKING:
 	from frappe_mailgun.frappe_mailgun.doctype.mailgun_domain.mailgun_domain import MailgunDomain
 
 BASE_URLS = {"EU": "https://api.eu.mailgun.net", "US": "https://api.mailgun.net"}
+
+# The authority must be a bare Mailgun host: no userinfo, port or backslash before the path.
+_MAILGUN_URL = re.compile(
+	r"https://(?:[a-z0-9-]+\.)*mailgun\.net(?P<rest>[/?#].*)?", re.IGNORECASE | re.DOTALL
+)
+
+
+def is_mailgun_url(url) -> bool:
+	"""True only for an https URL on mailgun.net or a subdomain, without backslashes or dot segments."""
+	if not isinstance(url, str) or "\\" in url:
+		return False
+	match = _MAILGUN_URL.fullmatch(url)
+	if not match:
+		return False
+	path = re.split(r"[?#]", match.group("rest") or "", maxsplit=1)[0]
+	return not any(unquote(segment) in (".", "..") for segment in path.split("/"))
 
 
 class MailgunError(Exception):
@@ -41,7 +59,13 @@ class MailgunClient:
 		headers=None,
 		timeout=(10, 60),
 	) -> requests.Response:
-		url = path if path.startswith("https://") else self.base_url + path
+		if path.startswith("/"):
+			url = self.base_url + path
+		elif is_mailgun_url(path):
+			url = path
+		else:
+			# Defence in depth: the API key must never travel to another host.
+			raise MailgunError(0, "refused: host is not Mailgun")
 		response = requests.request(
 			method,
 			url,

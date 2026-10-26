@@ -3,14 +3,47 @@ from unittest.mock import patch
 import frappe
 from frappe.tests import IntegrationTestCase
 
-from frappe_mailgun.inbound import fetch, notify
+from frappe_mailgun.client import MailgunClient, MailgunError
+from frappe_mailgun.inbound import fetch, is_storage_url, notify
 from frappe_mailgun.tests.fixtures import (
 	RAW_MAIL,
 	call_guest,
 	make_account,
+	make_domain,
 	mock_request,
 	notify_form,
 )
+
+HOSTILE_URLS = (
+	# urlparse reads the host as Mailgun's; requests sends to evil.test.
+	"https://evil.test\\@sw.api.mailgun.net/v3/domains/mg.example.test/messages/K",
+	# Dot segments climb out of the domain's stored messages.
+	"https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/../../../v3/routes",
+	# Userinfo that looks like Mailgun in front of a foreign host.
+	"https://api.mailgun.net@evil.test/v3/domains/mg.example.test/messages/K",
+)
+
+
+class TestStorageUrl(IntegrationTestCase):
+	def test_a_storage_url_is_accepted(self):
+		self.assertTrue(
+			is_storage_url("https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/AbC=_-1", "mg.example.test")
+		)
+
+	def test_hostile_urls_are_refused(self):
+		for url in HOSTILE_URLS:
+			with self.subTest(url=url):
+				self.assertFalse(is_storage_url(url, "mg.example.test"))
+
+	def test_the_client_refuses_hostile_urls_before_any_request(self):
+		client = MailgunClient(make_domain())
+		with patch("frappe_mailgun.client.requests.request") as request:
+			for url in HOSTILE_URLS:
+				with self.subTest(url=url):
+					with self.assertRaises(MailgunError) as cm:
+						client._request("GET", url)
+					self.assertEqual(cm.exception.status, 0)
+		request.assert_not_called()
 
 
 class TestInbound(IntegrationTestCase):

@@ -1,5 +1,5 @@
+import re
 from datetime import timedelta
-from urllib.parse import urlparse
 
 import frappe
 import requests
@@ -17,18 +17,15 @@ SWEEP_LOOKBACK_DAYS = 3
 
 def is_storage_url(url, domain_name: str) -> bool:
 	"""True only for an https Mailgun URL under this domain's stored messages."""
-	if not url or not isinstance(url, str):
+	if not url or not isinstance(url, str) or not domain_name:
 		return False
-	try:
-		parsed = urlparse(url)
-		host = parsed.hostname or ""
-	except ValueError:
-		return False
-	return (
-		parsed.scheme == "https"
-		and (host == "mailgun.net" or host.endswith(".mailgun.net"))
-		and parsed.path.startswith(f"/v3/domains/{domain_name}/messages/")
+	# One regex, not urlparse: urlparse and requests disagree on the host of a URL with a backslash.
+	pattern = (
+		r"https://(?i:[a-z0-9.-]+\.mailgun\.net)/v3/domains/"
+		+ re.escape(domain_name)
+		+ r"/messages/[A-Za-z0-9_=-]+"
 	)
+	return re.fullmatch(pattern, url) is not None
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
