@@ -1,0 +1,46 @@
+{
+ "actions": [],
+ "autoname": "field:event_id",
+ "creation": "2026-10-26 13:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "event_id",
+  "event",
+  "recipient",
+  "message_id",
+  "email_queue",
+  "communication",
+  "timestamp",
+  "severity",
+  "reason",
+  "data"
+ ],
+ "fields": [
+  {"fieldname": "event_id", "fieldtype": "Data", "label": "Event ID", "reqd": 1, "unique": 1},
+  {"fieldname": "event", "fieldtype": "Data", "label": "Event", "in_list_view": 1},
+  {"fieldname": "recipient", "fieldtype": "Data", "label": "Recipient", "in_list_view": 1},
+  {"fieldname": "message_id", "fieldtype": "Data", "label": "Message ID"},
+  {"fieldname": "email_queue", "fieldtype": "Link", "label": "Email Queue", "options": "Email Queue"},
+  {"fieldname": "communication", "fieldtype": "Link", "label": "Communication", "options": "Communication"},
+  {"fieldname": "timestamp", "fieldtype": "Datetime", "label": "Timestamp", "in_list_view": 1},
+  {"fieldname": "severity", "fieldtype": "Data", "label": "Severity"},
+  {"fieldname": "reason", "fieldtype": "Data", "label": "Reason"},
+  {"fieldname": "data", "fieldtype": "JSON", "label": "Data"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-26 13:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Frappe Mailgun",
+ "name": "Mailgun Event",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "System Manager", "write": 1}
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -105,7 +105,7 @@ Each Email Account references one Mailgun Domain. The key is stored once per dom
     parent's remaining validations (Append To, Reply-To addresses, notifications). For other
     services behave exactly as core.
   - `on_update()`: for a Mailgun account with incoming enabled, create or update the Mailgun route
-    `match_recipient("<email_id>")` → `store(notify="<inbound endpoint>")`, `stop()`, priority 0,
+    `match_recipient("^<email_id, regex-escaped>$")` → `store(notify="<inbound endpoint>")`, `stop()`, priority 0,
     and save its id; with incoming disabled or the account disabled, delete the route. Route
     description carries the site URL so the dashboard shows who owns it.
   - `receive()`: for a Mailgun account, the sweep (below); otherwise the parent's.
@@ -133,8 +133,8 @@ Each Email Account references one Mailgun Domain. The key is stored once per dom
    `message=<the raw MIME>`, `o:tag` = `frappe` and the queue's `reference_doctype` (lower-cased,
    spaces to hyphens, max 3 tags), `v:site` = the site name, `v:email_queue` = the queue name,
    `v:communication` = the queue's communication, `o:tracking-opens` and `o:tracking-clicks` as the
-   Email Account's `track_email_status`, `h:Reply-To` only when core did not already put one in the
-   MIME. Mailgun's own `Message-Id` is left to the MIME (Frappe sets it, and matches events by it).
+   Email Account's `track_email_status`. No `h:Reply-To`: core already writes the account's Reply-To
+   into the MIME from the Email Account's Reply-To Addresses table. Mailgun's own `Message-Id` is left to the MIME (Frappe sets it, and matches events by it).
 4. On HTTP 200 the queue is left for `SendMailContext` to mark Sent. On any other status raise with
    Mailgun's message, so the queue records the error and retries as core does.
 
@@ -195,9 +195,9 @@ its own mail. Statuses move per recipient first, then roll up:
 
 - the Email Queue Recipient row for that address: Sent on `delivered`, Error on a permanent
   `failed`;
-- the Email Queue: Sent when every row is Sent, Error only when every row is Error (so one bounced
-  CC does not trigger the failed-mail notification or a retry to the people who got it), otherwise
-  Partially Sent;
+- the Email Queue: only a Sent queue moves, to Error when every row has an error; a mixed outcome
+  stays Sent with the error on the row (core retries Partially Sent, so events never write it), a
+  queue core is still sending is left alone, and Error is never left;
 - the Communication: delivery status from the queue as core computes it, plus the states core cannot
   know (Opened, Clicked, Marked As Spam, Recipient Unsubscribed) set directly.
 
@@ -206,9 +206,9 @@ The map:
 | Mailgun event   | Email Queue status | Communication delivery status |
 | --------------- | ------------------ | ----------------------------- |
 | `accepted`      | Sending            | Sending                       |
-| `delivered`     | Sent               | Sent                          |
+| `delivered`     | (unchanged)        | Sent                          |
 | `failed` (temporary) | (unchanged)   | Delayed                       |
-| `failed` (permanent) | Error, with the reason | Bounced or Rejected per `reason` |
+| `failed` (permanent) | Error, with the reason, when every row has an error; else Sent | Bounced or Rejected per `reason` |
 | `opened`        |                    | Opened                        |
 | `clicked`       |                    | Clicked                       |
 | `complained`    |                    | Marked As Spam                |

@@ -1,0 +1,44 @@
+{
+ "actions": [],
+ "autoname": "field:storage_key",
+ "creation": "2026-10-26 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "storage_key",
+  "email_account",
+  "recipient",
+  "message_id",
+  "communication",
+  "received_at",
+  "spf",
+  "dkim",
+  "spam_score"
+ ],
+ "fields": [
+  {"fieldname": "storage_key", "fieldtype": "Data", "label": "Storage Key", "reqd": 1, "unique": 1, "in_list_view": 1},
+  {"fieldname": "email_account", "fieldtype": "Link", "label": "Email Account", "options": "Email Account", "in_list_view": 1},
+  {"fieldname": "recipient", "fieldtype": "Data", "label": "Recipient"},
+  {"fieldname": "message_id", "fieldtype": "Data", "label": "Message ID"},
+  {"fieldname": "communication", "fieldtype": "Link", "label": "Communication", "options": "Communication"},
+  {"fieldname": "received_at", "fieldtype": "Datetime", "label": "Received At"},
+  {"fieldname": "spf", "fieldtype": "Data", "label": "SPF"},
+  {"fieldname": "dkim", "fieldtype": "Data", "label": "DKIM"},
+  {"fieldname": "spam_score", "fieldtype": "Data", "label": "Spam Score"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-26 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Frappe Mailgun",
+ "name": "Mailgun Inbound Message",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "System Manager", "write": 1}
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

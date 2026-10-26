@@ -671,9 +671,9 @@ Status moves per event, where `recipient` is the event's recipient and the queue
 | event | queue row | queue | communication |
 | --- | --- | --- | --- |
 | accepted | | | |
-| delivered | status Sent | Sent when every row is Sent, else Partially Sent | from `set_delivery_status()` (core) |
+| delivered | status Sent | unchanged (events never write Partially Sent) | from `set_delivery_status()` (core) |
 | failed, severity temporary | | | Delayed |
-| failed, severity permanent | error = `delivery-status.message` or `reason` | Error with that text when every row has an error, else Partially Sent | Bounced when `reason == "bounce"`, else Rejected, only when every row has an error |
+| failed, severity permanent | error = `delivery-status.message` or `reason` | Error with that text when every row has an error and the queue is Sent, else unchanged | Bounced when `reason == "bounce"`, else Rejected, only when every row has an error |
 | opened | | | Opened |
 | clicked | | | Clicked |
 | complained | | | Marked As Spam |
