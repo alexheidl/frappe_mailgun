@@ -24,6 +24,11 @@ HOSTILE_URLS = (
 	"https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/../../../v3/routes",
 	# Userinfo that looks like Mailgun in front of a foreign host.
 	"https://api.mailgun.net@evil.test/v3/domains/mg.example.test/messages/K",
+	# Case-insensitive Unicode matching folds these into "mailgun"; IDNA sends them elsewhere.
+	"https://sw.api.ma\u0131lgun.net/v3/domains/mg.example.test/messages/K",
+	"https://sw.api.ma\u0130lgun.net/v3/domains/mg.example.test/messages/K",
+	# An empty label before mailgun.net.
+	"https://..mailgun.net/v3/domains/mg.example.test/messages/K",
 )
 
 

@@ -13,8 +13,9 @@ if TYPE_CHECKING:
 BASE_URLS = {"EU": "https://api.eu.mailgun.net", "US": "https://api.mailgun.net"}
 
 # The authority must be a bare Mailgun host: no userinfo, port or backslash before the path.
+# re.ASCII: Unicode case folding would let a dotless i stand in for the i in mailgun.
 _MAILGUN_URL = re.compile(
-	r"https://(?:[a-z0-9-]+\.)*mailgun\.net(?P<rest>[/?#].*)?", re.IGNORECASE | re.DOTALL
+	r"https://(?:[a-z0-9-]+\.)*mailgun\.net(?P<rest>[/?#].*)?", re.IGNORECASE | re.ASCII | re.DOTALL
 )
 
 

@@ -31,8 +31,9 @@ def is_storage_url(url, domain_name: str) -> bool:
 	if not url or not isinstance(url, str) or not domain_name:
 		return False
 	# One regex, not urlparse: urlparse and requests disagree on the host of a URL with a backslash.
+	# ASCII-only case folding: Unicode would let a dotless i stand in for the i in mailgun.
 	pattern = (
-		r"https://(?i:[a-z0-9.-]+\.mailgun\.net)/v3/domains/"
+		r"https://(?ai:(?:[a-z0-9-]+\.)+mailgun\.net)/v3/domains/"
 		+ re.escape(domain_name)
 		+ r"/messages/[A-Za-z0-9_=-]+"
 	)
