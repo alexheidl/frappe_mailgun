@@ -1,4 +1,7 @@
+import hashlib
+import hmac
 import json
+import time
 from contextlib import contextmanager
 from unittest.mock import patch
 
@@ -21,6 +24,16 @@ def make_domain(name: str = "mg.example.test", region: str = "EU"):
 			"webhook_signing_key": "sign-test",
 		}
 	).insert(ignore_permissions=True)
+
+
+def signed(signing_key: str, now: int | None = None) -> dict:
+	"""Return a Mailgun webhook signature triple for `signing_key`, timestamped at `now`."""
+	timestamp = str(int(now or time.time()))
+	token = frappe.generate_hash(length=50)
+	signature = hmac.new(
+		signing_key.encode(), (timestamp + token).encode(), hashlib.sha256
+	).hexdigest()
+	return {"timestamp": timestamp, "token": token, "signature": signature}
 
 
 class _Recorder:

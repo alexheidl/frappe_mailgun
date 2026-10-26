@@ -11,3 +11,5 @@ after_install = "frappe_mailgun.install.setup"
 after_migrate = ["frappe_mailgun.install.setup"]
 
 doctype_js = {"Email Account": "public/js/email_account.js"}
+
+scheduler_events = {"daily": ["frappe_mailgun.retention.run"]}
