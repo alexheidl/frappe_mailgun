@@ -97,8 +97,14 @@ anyway: the app records Mailgun's verdicts and does not act on them.
 ## What you see
 
 - Communication: the delivery status moves as Mailgun reports it, from Sending to Sent, Delayed,
-  Bounced, Rejected, Opened, Clicked, Marked As Spam or Recipient Unsubscribed. Delayed and Sent can
-  replace each other, every other status only moves up.
+  Bounced, Rejected, Opened, Clicked, Marked As Spam or Recipient Unsubscribed. A status is replaced only by
+  one of equal or higher rank, so statuses never move down. The ranks, lowest first:
+  - Sending
+  - Sent or Delayed
+  - Error, Bounced or Rejected
+  - Opened
+  - Clicked
+  - Marked As Spam or Recipient Unsubscribed
 - Email Queue: status per recipient, rolled up. One bounced CC does not fail the mail.
 - Unsubscribe events create an Email Unsubscribe for the mail's reference document only, never a
   global one. A mail with no reference document gets no Email Unsubscribe, and the Communication
