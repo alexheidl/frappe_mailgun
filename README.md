@@ -97,11 +97,12 @@ anyway: the app records Mailgun's verdicts and does not act on them.
 ## What you see
 
 - Communication: the delivery status moves as Mailgun reports it, from Sending to Sent, Delayed,
-  Bounced, Rejected, Opened, Clicked, Marked As Spam or Recipient Unsubscribed. Statuses only move
-  forward.
+  Bounced, Rejected, Opened, Clicked, Marked As Spam or Recipient Unsubscribed. Delayed and Sent can
+  replace each other, every other status only moves up.
 - Email Queue: status per recipient, rolled up. One bounced CC does not fail the mail.
 - Unsubscribe events create an Email Unsubscribe for the mail's reference document only, never a
-  global one.
+  global one. A mail with no reference document gets no Email Unsubscribe, and the Communication
+  status still changes.
 - Mailgun Event list: every event received, kept 90 days.
 - Mailgun Inbound Message list: every fetched message with SPF, DKIM and spam score, kept 7 days.
 - Error Log titles to search for:
@@ -114,7 +115,7 @@ anyway: the app records Mailgun's verdicts and does not act on them.
 ## Scheduled jobs
 
 - Hourly, `frappe_mailgun.events.sweep`: reads each Mailgun Domain's events from Last Events At and
-  applies those the webhook missed.
+  applies those the webhook missed (1 day back on the first run).
 - Email pull, per Mailgun account with incoming on: the inbound sweep reads `stored` events since
   Mailgun Last Received At (3 days back on the first run) and fetches messages not yet seen.
   Mailgun keeps stored messages for 3 days.
@@ -123,9 +124,14 @@ anyway: the app records Mailgun's verdicts and does not act on them.
 
 ## Troubleshooting
 
-- 401 on the notify or events endpoint (`/api/method/frappe_mailgun.inbound.notify`,
-  `/api/method/frappe_mailgun.events.webhook`): the Webhook Signing Key on the Mailgun Domain does
-  not match Mailgun's. Every refusal is the same 401 on purpose. Replayed tokens are ignored.
+- 401 on the notify endpoint (`/api/method/frappe_mailgun.inbound.notify`): the Webhook Signing Key
+  on the Mailgun Domain does not match Mailgun's, or the signature is missing. Its other answers:
+  - 404 for a recipient domain that is not a Mailgun Domain.
+  - 417 for a `message-url` that is not a stored message of the domain.
+  - A replayed token is ignored.
+- 401 on the events endpoint (`/api/method/frappe_mailgun.events.webhook`): it answers 401 for every
+  refusal on purpose, including an unknown domain or an empty body. Check the Webhook Signing Key
+  first.
 - Error Log "Mailgun inbound: no account": the route still exists for an address that has no
   enabled incoming Mailgun account. Delete the route in Mailgun, or re-enable incoming on the account.
 - Mail does not arrive and no route changes show: untick Enable Incoming, save, tick it, save. The
@@ -133,7 +139,7 @@ anyway: the app records Mailgun's verdicts and does not act on them.
 - Route description reads `Frappe Mailgun: <site url> <account>`: that is how to tell whose route
   it is in Mailgun.
 - Mail missed a webhook (site down, a deploy): the sweeps recover it within the windows above.
-  A message whose fetch failed is recorded and not retried.
+  A message whose fetch failed in the sweep is recorded and not retried by the sweep.
 - Statuses not moving: press Register webhooks, check the registered URLs with Test connection, and
   check that the site is reachable from the internet.
 - Changing a Mailgun account's domain: disable incoming first, so its route is removed from the
