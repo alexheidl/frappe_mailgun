@@ -1,8 +1,11 @@
+from unittest.mock import patch
+
 import frappe
+from frappe.email.doctype.email_account.email_account import EmailAccount
 from frappe.tests import IntegrationTestCase
 
 from frappe_mailgun.overrides.email_account import MailgunEmailAccount
-from frappe_mailgun.tests.fixtures import make_account, mock_request
+from frappe_mailgun.tests.fixtures import make_account, make_domain, mock_request
 
 
 class TestMailgunEmailAccount(IntegrationTestCase):
@@ -50,3 +53,16 @@ class TestMailgunEmailAccount(IntegrationTestCase):
 		server = acc.get_smtp_server()
 		self.assertIsNone(server.session)
 		server.quit()
+
+	def test_no_route_call_when_the_parents_on_update_fails(self):
+		with mock_request([]) as m, patch.object(EmailAccount, "on_update", side_effect=RuntimeError):
+			with self.assertRaises(RuntimeError):
+				make_account()
+		self.assertEqual(m.calls, [])
+
+	def test_domain_is_fixed_while_a_route_exists(self):
+		with mock_request([(200, {"route": {"id": "r1"}})]):
+			acc = make_account()
+		acc.mailgun_domain = make_domain("other.example.test").name
+		with self.assertRaises(frappe.ValidationError):
+			acc.save()

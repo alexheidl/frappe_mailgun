@@ -31,6 +31,7 @@ class MailgunEmailAccount(EmailAccount):
 		# which would exclude the account from pull().
 		validate_email_address(self.email_id, True)
 		self.validate_domain()
+		self.validate_domain_unchanged()
 		self.use_imap = 0
 		self.always_use_account_email_id_as_sender = 1
 		self.awaiting_password = 0
@@ -53,6 +54,13 @@ class MailgunEmailAccount(EmailAccount):
 				)
 			)
 
+	def validate_domain_unchanged(self):
+		before = self.get_doc_before_save()
+		if self.mailgun_route_id and before and before.mailgun_domain != self.mailgun_domain:
+			frappe.throw(
+				_("Disable incoming mail before changing the Mailgun domain of {0}").format(self.name)
+			)
+
 	def validate_append_to(self):
 		if not self.append_to:
 			return
@@ -69,9 +77,10 @@ class MailgunEmailAccount(EmailAccount):
 			validate_email_address(address, True)
 
 	def on_update(self):
+		super().on_update()
+		# Last, so that only the Mailgun call can fail after the parent's work.
 		if self.is_mailgun:
 			self.sync_route()
-		super().on_update()
 
 	def sync_route(self):
 		client = MailgunClient(frappe.get_doc("Mailgun Domain", self.mailgun_domain))
