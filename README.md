@@ -163,6 +163,17 @@ anyway: the app records Mailgun's verdicts and does not act on them.
 - Changing a Mailgun account's domain: disable incoming first, so its route is removed from the
   old domain.
 
+## Security notes
+
+- The webhook signing key is account-wide, and Mailgun's signature covers only the timestamp and
+  the token, not the body. Anyone who can read one of the account's webhook requests can replay
+  its signed triple with a body of their own for 15 minutes. A site accepts each token once, so a
+  replay lands only on a site the original request has not reached.
+- The app pins every storage URL to Mailgun's hosts, and the Mailgun client refuses any absolute
+  URL that is not on `mailgun.net`, so the API key never travels elsewhere.
+- The app never acts on an event body before a signing key verifies its signature.
+- Keep the signing key out of logs and other services where possible.
+
 ## Development
 
 Tests run on a bench with Frappe 16 and Python 3.14: `bench --site <site> run-tests --app

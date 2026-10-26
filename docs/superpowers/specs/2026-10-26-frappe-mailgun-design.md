@@ -105,7 +105,7 @@ Each Email Account references one Mailgun Domain. The key is stored once per dom
     parent's remaining validations (Append To, Reply-To addresses, notifications). For other
     services behave exactly as core.
   - `on_update()`: for a Mailgun account with incoming enabled, create or update the Mailgun route
-    `match_recipient("<email_id>")` → `store(notify="<inbound endpoint>")`, `stop()`, priority 0,
+    `match_recipient("^<email_id, regex-escaped>$")` → `store(notify="<inbound endpoint>")`, `stop()`, priority 0,
     and save its id; with incoming disabled or the account disabled, delete the route. Route
     description carries the site URL so the dashboard shows who owns it.
   - `receive()`: for a Mailgun account, the sweep (below); otherwise the parent's.
