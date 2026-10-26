@@ -133,8 +133,8 @@ Each Email Account references one Mailgun Domain. The key is stored once per dom
    `message=<the raw MIME>`, `o:tag` = `frappe` and the queue's `reference_doctype` (lower-cased,
    spaces to hyphens, max 3 tags), `v:site` = the site name, `v:email_queue` = the queue name,
    `v:communication` = the queue's communication, `o:tracking-opens` and `o:tracking-clicks` as the
-   Email Account's `track_email_status`, `h:Reply-To` only when core did not already put one in the
-   MIME. Mailgun's own `Message-Id` is left to the MIME (Frappe sets it, and matches events by it).
+   Email Account's `track_email_status`. No `h:Reply-To`: core already writes the account's Reply-To
+   into the MIME from the Email Account's Reply-To Addresses table. Mailgun's own `Message-Id` is left to the MIME (Frappe sets it, and matches events by it).
 4. On HTTP 200 the queue is left for `SendMailContext` to mark Sent. On any other status raise with
    Mailgun's message, so the queue records the error and retries as core does.
 
