@@ -12,7 +12,10 @@ after_migrate = ["frappe_mailgun.install.setup"]
 
 doctype_js = {"Email Account": "public/js/email_account.js"}
 
-scheduler_events = {"daily": ["frappe_mailgun.retention.run"]}
+scheduler_events = {
+	"hourly": ["frappe_mailgun.events.sweep"],
+	"daily": ["frappe_mailgun.retention.run"],
+}
 
 override_doctype_class = {"Email Account": "frappe_mailgun.overrides.email_account.MailgunEmailAccount"}
 override_email_send = ["frappe_mailgun.send.send"]

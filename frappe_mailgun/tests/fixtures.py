@@ -137,3 +137,36 @@ def notify_form(key: str, recipient: str) -> dict:
 		"recipient": recipient,
 		"message-url": f"https://sw.api.mailgun.net/v3/domains/{domain}/messages/KEYn",
 	}
+
+
+def event_data(
+	event: str,
+	*,
+	recipient: str,
+	email_queue: str,
+	site: str,
+	id: str | None = None,
+	timestamp: float | None = None,
+	severity: str | None = None,
+	reason: str | None = None,
+	message: str | None = None,
+) -> dict:
+	"""Build Mailgun's event-data shape for `event`, with the queue's message id when the queue exists."""
+	message_id = frappe.db.get_value("Email Queue", email_queue, "message_id")
+	headers = {"message-id": message_id} if message_id else {}
+	return {
+		"id": id or frappe.generate_hash(length=22),
+		"event": event,
+		"timestamp": timestamp or time.time(),
+		"recipient": recipient,
+		"user-variables": {"site": site, "email_queue": email_queue},
+		"message": {"headers": headers},
+		"severity": severity,
+		"reason": reason,
+		"delivery-status": {"message": message},
+	}
+
+
+def call_guest_json(fn, body: dict):
+	"""Call `fn` as Guest with the JSON `body` as the form dict (`webhook()` falls back to it without a request)."""
+	return call_guest(fn, body)
