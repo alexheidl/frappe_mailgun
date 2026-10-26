@@ -64,5 +64,7 @@ class TestMailgunEmailAccount(IntegrationTestCase):
 		with mock_request([(200, {"route": {"id": "r1"}})]):
 			acc = make_account()
 		acc.mailgun_domain = make_domain("other.example.test").name
-		with self.assertRaises(frappe.ValidationError):
+		acc.email_id = "support@other.example.test"
+		with self.assertRaises(frappe.ValidationError) as ctx:
 			acc.save()
+		self.assertIn("Disable incoming mail before changing the Mailgun domain", str(ctx.exception))
