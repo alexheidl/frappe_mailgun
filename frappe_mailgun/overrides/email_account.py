@@ -112,6 +112,19 @@ class MailgunEmailAccount(EmailAccount):
 
 	def get_inbound_mails(self):
 		if self.is_mailgun:
-			# Task 6 replaces this with frappe_mailgun.inbound.get_inbound_mails(self).
-			return []
+			from frappe_mailgun.inbound import get_inbound_mails
+
+			return get_inbound_mails(self)
 		return super().get_inbound_mails()
+
+	def receive(self):
+		if not self.is_mailgun:
+			return super().receive()
+		from frappe_mailgun.inbound import record_mails
+
+		try:
+			super().receive()
+		finally:
+			# Core's loop rolls back a failed mail; the row still records that it was fetched.
+			record_mails(self)
+			frappe.db.commit()

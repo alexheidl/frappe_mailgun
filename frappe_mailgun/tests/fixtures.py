@@ -112,3 +112,28 @@ def make_smtp_account():
 			"enable_incoming": 0,
 		}
 	).insert(ignore_permissions=True)
+
+
+RAW_MAIL = b"From: Customer <c@customer.test>\r\nTo: support@mg.example.test\r\nSubject: Help\r\nMessage-ID: <m1@customer.test>\r\nDate: Sun, 26 Oct 2026 10:00:00 +0530\r\nX-Mailgun-Spf: Pass\r\nX-Mailgun-Dkim-Check-Result: Pass\r\nContent-Type: text/plain\r\n\r\nMy order is late.\r\n"
+
+
+def call_guest(fn, form: dict):
+	"""Call `fn` as Guest with `form` as the form dict, restoring the previous user and form dict."""
+	user, form_dict = frappe.session.user, frappe.local.form_dict
+	frappe.set_user("Guest")
+	frappe.local.form_dict = frappe._dict(form)
+	try:
+		return fn()
+	finally:
+		frappe.set_user(user)
+		frappe.local.form_dict = form_dict
+
+
+def notify_form(key: str, recipient: str) -> dict:
+	"""Return the form Mailgun posts for a stored message to `recipient`, signed with `key`."""
+	domain = recipient.rpartition("@")[2]
+	return {
+		**signed(key),
+		"recipient": recipient,
+		"message-url": f"https://sw.api.mailgun.net/v3/domains/{domain}/messages/KEYn",
+	}
