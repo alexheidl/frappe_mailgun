@@ -1,9 +1,12 @@
 from unittest.mock import patch
 
 import frappe
+import requests
+from frappe.utils import get_datetime
 from frappe.tests import IntegrationTestCase
 
 from frappe_mailgun.client import MailgunClient, MailgunError
+from frappe_mailgun.clock import from_unix
 from frappe_mailgun.inbound import fetch, is_storage_url, notify
 from frappe_mailgun.tests.fixtures import (
 	RAW_MAIL,
@@ -181,3 +184,51 @@ class TestInbound(IntegrationTestCase):
 		self.assertIsNotNone(
 			frappe.db.get_value("Email Account", self.account.name, "mailgun_last_received_at")
 		)
+
+	def stored(self, key, ts):
+		return {
+			"event": "stored",
+			"timestamp": ts,
+			"storage": {"key": key, "url": f"https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/{key}"},
+		}
+
+	def cursor(self):
+		return get_datetime(frappe.db.get_value("Email Account", self.account.name, "mailgun_last_received_at"))
+
+	def test_sweep_leaves_a_transient_failure_for_the_next_pull(self):
+		events = {
+			"items": [
+				self.stored("LIVE2", 1_800_000_000),
+				self.stored("BUSY1", 1_800_000_100),
+				self.stored("LATER1", 1_800_000_200),
+			],
+			"paging": {},
+		}
+		with mock_request([(200, events), (200, {"body-mime": RAW_MAIL.decode()}), (503, {"message": "busy"})]):
+			self.account.reload().receive()
+		self.assertTrue(frappe.db.exists("Mailgun Inbound Message", "LIVE2"))
+		self.assertFalse(frappe.db.exists("Mailgun Inbound Message", "BUSY1"))
+		self.assertFalse(frappe.db.exists("Mailgun Inbound Message", "LATER1"))
+		# The cursor stops at the failed event, so the next pull lists it again.
+		self.assertEqual(self.cursor(), from_unix(1_800_000_100))
+		self.assertTrue(frappe.db.exists("Error Log", {"method": "Mailgun inbound: fetch failed"}))
+
+	def test_sweep_records_a_gone_message_and_moves_on(self):
+		events = {"items": [self.stored("GONE1", 1_800_000_000)], "paging": {}}
+		with mock_request([(200, events), (410, {"message": "gone"})]):
+			self.account.reload().receive()
+		self.assertTrue(frappe.db.exists("Mailgun Inbound Message", "GONE1"))
+		self.assertEqual(self.cursor(), from_unix(1_800_000_000))
+
+	def test_fetch_with_a_timeout_logs_and_returns(self):
+		frappe.db.delete("Error Log", {"method": "Mailgun inbound: fetch failed"})
+		with patch.object(MailgunClient, "get_stored_message", side_effect=requests.Timeout("slow")):
+			fetch("mg.example.test", "https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/SLOW1", "support@mg.example.test")
+		self.assertFalse(frappe.db.exists("Mailgun Inbound Message", "SLOW1"))
+		self.assertTrue(frappe.db.exists("Error Log", {"method": "Mailgun inbound: fetch failed"}))
+
+	def test_fetch_of_a_gone_message_records_it(self):
+		with mock_request([(404, {"message": "gone"})]):
+			fetch("mg.example.test", "https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/GONE2", "support@mg.example.test")
+		self.assertTrue(frappe.db.exists("Mailgun Inbound Message", "GONE2"))
+		self.assertFalse(frappe.db.get_value("Mailgun Inbound Message", "GONE2", "communication"))

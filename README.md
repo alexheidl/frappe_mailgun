@@ -151,7 +151,11 @@ anyway: the app records Mailgun's verdicts and does not act on them.
 - Route description reads `Frappe Mailgun: <site url> <account>`: that is how to tell whose route
   it is in Mailgun.
 - Mail missed a webhook (site down, a deploy): the sweeps recover it within the windows above.
-  A message whose fetch failed in the sweep is recorded and not retried by the sweep.
+  A failed fetch logs `Mailgun inbound: fetch failed`, then:
+  - Mailgun answered 404 or 410: the message is gone, so it is recorded without a Communication
+    and not tried again.
+  - Any other error or a timeout: nothing is recorded and the inbound sweep tries again on the
+    next pull, while Mailgun still stores the message (3 days).
 - Statuses not moving: press Register webhooks, check the registered URLs with Test connection, and
   check that the site is reachable from the internet.
 - Changing a Mailgun account's domain: disable incoming first, so its route is removed from the
