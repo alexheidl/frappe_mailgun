@@ -138,27 +138,46 @@ def _sweep_raw_messages(account) -> list[tuple[str, bytes]]:
 	latest = None
 	for event in events:
 		timestamp = event.get("timestamp")
-		storage = event.get("storage") or {}
-		key, url = storage.get("key"), storage.get("url")
-		if key and url and not _is_seen(key) and not any(key == k for k, _raw in raw_messages):
-			if not is_storage_url(url, account.mailgun_domain.lower()):
-				frappe.log_error(title="Mailgun inbound: invalid message URL", message=str(url))
-			else:
-				try:
-					raw_messages.append((key, client.get_stored_message(url)))
-				except (MailgunError, requests.RequestException) as e:
-					frappe.log_error(title="Mailgun inbound: fetch failed", message=f"{account.name} {key}\n{e}")
-					if not _is_gone(e):
-						# Transient: hold the cursor at this event so the next pull retries it.
-						if isinstance(timestamp, int | float) and not isinstance(timestamp, bool):
-							latest = timestamp
-						break
-					_record_failed(account, key)
-		if isinstance(timestamp, int | float) and not isinstance(timestamp, bool):
+		if not (isinstance(timestamp, int | float) and not isinstance(timestamp, bool)):
+			timestamp = None
+		try:
+			_sweep_one(account, client, event, raw_messages)
+		except _Transient:
+			# Hold the cursor at this event so the next pull retries it.
+			if timestamp is not None:
+				latest = timestamp
+			break
+		except Exception:
+			frappe.log_error(
+				title="Mailgun inbound: event failed", message=f"{account.name}\n{frappe.get_traceback()}"
+			)
+		if timestamp is not None:
 			latest = max(latest or 0, timestamp)
 	if latest is not None:
 		account.db_set("mailgun_last_received_at", from_unix(latest), update_modified=False)
 	return raw_messages
+
+
+class _Transient(Exception):
+	"""A fetch failed in a way a later pull may not."""
+
+
+def _sweep_one(account, client: MailgunClient, event: dict, raw_messages: list) -> None:
+	"""Fetch one stored event's message into `raw_messages` unless it is seen, foreign or gone."""
+	storage = event.get("storage") or {}
+	key, url = storage.get("key"), storage.get("url")
+	if not key or not url or _is_seen(key) or any(key == k for k, _raw in raw_messages):
+		return
+	if not is_storage_url(url, account.mailgun_domain.lower()):
+		frappe.log_error(title="Mailgun inbound: invalid message URL", message=str(url))
+		return
+	try:
+		raw_messages.append((key, client.get_stored_message(url)))
+	except (MailgunError, requests.RequestException) as e:
+		frappe.log_error(title="Mailgun inbound: fetch failed", message=f"{account.name} {key}\n{e}")
+		if not _is_gone(e):
+			raise _Transient from e
+		_record_failed(account, key)
 
 
 def _record_failed(account, storage_key: str) -> None:

@@ -110,15 +110,17 @@ anyway: the app records Mailgun's verdicts and does not act on them.
   One bounced CC leaves the queue Sent, with the error on that recipient's row. A queue still
   sending, or already in Error, is left alone.
 - Unsubscribe events create an Email Unsubscribe for the mail's reference document only, never a
-  global one. A mail with no reference document gets no Email Unsubscribe, and the Communication
-  status still changes.
+  global one. A mail with no reference document, or whose reference document was deleted, gets no
+  Email Unsubscribe, and the Communication status still changes.
 - Mailgun Event list: every event received, kept 90 days.
 - Mailgun Inbound Message list: every fetched message with SPF, DKIM and spam score, kept 7 days.
 - Error Log titles to search for:
   - `Mailgun inbound: no account`
   - `Mailgun inbound: invalid message URL`
   - `Mailgun inbound: fetch failed`
+  - `Mailgun inbound: event failed` (the inbound sweep skipped one event and went on)
   - `Mailgun events: sweep failed`
+  - `Mailgun events: event failed` (the events sweep undid one event and went on)
 - A failed send stays in the Email Queue with Mailgun's message as its error, and core retries it.
 
 ## Scheduled jobs

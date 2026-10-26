@@ -232,3 +232,19 @@ class TestInbound(IntegrationTestCase):
 			fetch("mg.example.test", "https://sw.api.mailgun.net/v3/domains/mg.example.test/messages/GONE2", "support@mg.example.test")
 		self.assertTrue(frappe.db.exists("Mailgun Inbound Message", "GONE2"))
 		self.assertFalse(frappe.db.get_value("Mailgun Inbound Message", "GONE2", "communication"))
+
+	def test_sweep_logs_a_broken_event_and_moves_on(self):
+		events = {
+			"items": [
+				self.stored("BROKEN1", 1_800_000_000),
+				{**self.stored("ODD1", "soon"), "storage": None},
+				self.stored("LIVE3", 1_800_000_100),
+			],
+			"paging": {},
+		}
+		# BROKEN1's body has no body-mime, which raises a KeyError in the client.
+		with mock_request([(200, events), (200, {}), (200, {"body-mime": RAW_MAIL.decode()})]):
+			self.account.reload().receive()
+		self.assertTrue(frappe.db.get_value("Mailgun Inbound Message", "LIVE3", "communication"))
+		self.assertEqual(self.cursor(), from_unix(1_800_000_100))
+		self.assertTrue(frappe.db.exists("Error Log", {"method": "Mailgun inbound: event failed"}))

@@ -188,8 +188,14 @@ def _apply_status(queue, event: str, recipient: str, event_data: dict) -> None:
 			"reference_doctype": queue.reference_doctype,
 			"reference_name": queue.reference_name,
 		}
-		# Core raises on a duplicate before ignore_if_duplicate can apply, so check first.
-		if queue.reference_doctype and queue.reference_name and not frappe.db.exists("Email Unsubscribe", key):
+		# Core raises on a duplicate before ignore_if_duplicate can apply, so check first. A deleted
+		# reference document would fail the Dynamic Link, so it gets no Email Unsubscribe.
+		if (
+			queue.reference_doctype
+			and queue.reference_name
+			and frappe.db.exists(queue.reference_doctype, queue.reference_name)
+			and not frappe.db.exists("Email Unsubscribe", key)
+		):
 			frappe.get_doc(
 				{
 					"doctype": "Email Unsubscribe",
@@ -260,6 +266,18 @@ def _sweep_domain(name: str) -> None:
 		if isinstance(timestamp, int | float) and not isinstance(timestamp, bool):
 			latest = max(latest or 0, timestamp)
 		if item.get("event") != "stored":
-			apply_event(item)
+			_apply_in_savepoint(item)
 	if latest is not None:
 		domain.db_set("last_events_at", from_unix(latest), update_modified=False)
+
+
+def _apply_in_savepoint(item: dict) -> None:
+	"""Apply one swept event; a failure is undone and logged, and the sweep moves past it."""
+	frappe.db.savepoint("mailgun_event")
+	try:
+		apply_event(item)
+	except Exception:
+		frappe.db.rollback(save_point="mailgun_event")
+		frappe.log_error(
+			title="Mailgun events: event failed", message=f"{item.get('id')}\n{frappe.get_traceback()}"
+		)

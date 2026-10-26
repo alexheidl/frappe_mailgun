@@ -4,6 +4,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests import IntegrationTestCase
 
+from frappe_mailgun import events
 from frappe_mailgun.client import MailgunClient
 from frappe_mailgun.clock import from_unix, to_unix
 from frappe_mailgun.events import apply_event, sweep, webhook
@@ -230,6 +231,39 @@ class TestEvents(IntegrationTestCase):
 		body = {"signature": signed("sign-test"), "event-data": event}
 		self.assertEqual(call_guest_json(webhook, body), {"status": "ok"})
 		self.assertFalse(frappe.db.get_value("Mailgun Event", event["id"], "email_queue"))
+
+	def test_unsubscribe_for_a_deleted_reference_skips_the_email_unsubscribe(self):
+		frappe.db.delete("ToDo", {"name": self.todo.name})
+		apply_event(self.ev("unsubscribed"))
+		self.assertEqual(self.comm_status(), "Recipient Unsubscribed")
+		self.assertFalse(frappe.db.exists("Email Unsubscribe", {"email": "to@x.test", "reference_name": self.todo.name}))
+
+	def test_sweep_skips_an_event_that_fails_and_moves_on(self):
+		frappe.db.set_value("Mailgun Domain", "mg.example.test", "last_events_at", None)
+		real_apply = events.apply_event
+
+		def apply(item):
+			if item["id"] == "bad1":
+				frappe.get_doc({"doctype": "Mailgun Event", "event_id": "half1", "event": "delivered"}).insert(ignore_permissions=True)
+				raise frappe.LinkValidationError("gone")
+			return real_apply(item)
+
+		items = {
+			"items": [
+				self.ev("unsubscribed", id="bad1", timestamp=1_800_000_000),
+				self.ev("delivered", id="good1", timestamp=1_800_000_100),
+			],
+			"paging": {},
+		}
+		with mock_request([(200, items)]), patch.object(events, "apply_event", apply):
+			sweep()
+		self.assertFalse(frappe.db.exists("Mailgun Event", "half1"))
+		self.assertTrue(frappe.db.exists("Mailgun Event", "good1"))
+		self.assertEqual(
+			frappe.utils.get_datetime(frappe.db.get_value("Mailgun Domain", "mg.example.test", "last_events_at")),
+			from_unix(1_800_000_100),
+		)
+		self.assertTrue(frappe.db.exists("Error Log", {"method": "Mailgun events: event failed"}))
 
 	def send_to(self, **kwargs):
 		with mock_request([(200, {})] * 2):
