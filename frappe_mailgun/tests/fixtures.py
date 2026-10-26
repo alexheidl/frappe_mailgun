@@ -66,3 +66,31 @@ def mock_request(responses: list[tuple[int, dict | bytes]]):
 
 	with patch.object(MailgunClient, "_request", fake):
 		yield recorder
+
+
+def make_account(
+	email_id: str = "support@mg.example.test",
+	*,
+	incoming: bool = True,
+	outgoing: bool = True,
+	append_to: str = "ToDo",
+	domain: str | None = None,
+):
+	"""Insert a Mailgun Email Account for `email_id`, replacing an existing one. Route calls are mocked by the caller."""
+	name = f"Mailgun {email_id}"
+	if frappe.db.exists("Email Account", name):
+		# Clear the route id so deleting never calls Mailgun.
+		frappe.db.set_value("Email Account", name, "mailgun_route_id", None)
+		frappe.delete_doc("Email Account", name, force=True)
+	return frappe.get_doc(
+		{
+			"doctype": "Email Account",
+			"email_account_name": name,
+			"email_id": email_id,
+			"service": "Mailgun",
+			"mailgun_domain": make_domain(domain or "mg.example.test").name,
+			"enable_incoming": int(incoming),
+			"enable_outgoing": int(outgoing),
+			"append_to": append_to,
+		}
+	).insert(ignore_permissions=True)
